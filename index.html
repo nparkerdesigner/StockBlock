@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barcode Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<style>
+  :root {
+    --brand: #1B5EA8;
+    --brand-dark: #124273;
+    --ink: #14181C;
+    --muted: #5F6B75;
+    --bg: #F7F8F5;
+    --card: #FFFFFF;
+    --border: #DEE2DA;
+    --success: #2E8B57;
+    --danger: #C0392B;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 20px 16px 60px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  header .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--brand);
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  #viewfinder {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #0d0f11;
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  #viewfinder video, #viewfinder canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .scan-frame {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 78%;
+    height: 34%;
+    border: 2px solid rgba(255,255,255,0.85);
+    border-radius: 8px;
+    pointer-events: none;
+  }
+
+  .scan-line {
+    position: absolute;
+    left: 4%;
+    width: 92%;
+    height: 2px;
+    background: #4ADE80;
+    box-shadow: 0 0 8px #4ADE80;
+    animation: sweep 1.8s ease-in-out infinite;
+  }
+
+  @keyframes sweep {
+    0%, 100% { top: 6%; }
+    50% { top: 92%; }
+  }
+
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #A8B0B8;
+    font-size: 14px;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  button {
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    flex: 1;
+    transition: opacity 0.15s;
+  }
+
+  button:active { opacity: 0.8; }
+
+  .btn-primary { background: var(--brand); color: white; }
+  .btn-secondary { background: #EDEFEA; color: var(--ink); }
+
+  .manual-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  input[type="text"] {
+    flex: 1;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+
+  input[type="text"]:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+
+  .status {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 10px;
+    min-height: 18px;
+  }
+
+  .status.error { color: var(--danger); }
+  .status.success { color: var(--success); }
+
+  #result { display: none; }
+
+  .result-head {
+    display: flex;
+    gap: 12px;
+  }
+
+  .result-head img {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    background: var(--bg);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  .result-head .titles { flex: 1; min-width: 0; }
+
+  .result-head h2 {
+    font-size: 16px;
+    margin: 0 0 2px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .result-head .brand { font-size: 13px; color: var(--muted); }
+
+  .grade-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: white;
+    font-weight: 700;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+
+  .grade-a { background: #1E8F4E; }
+  .grade-b { background: #6FBE3B; }
+  .grade-c { background: #F4C542; color: var(--ink); }
+  .grade-d { background: #E8823A; }
+  .grade-e { background: #D9453D; }
+  .grade-unknown { background: #B4B2A9; }
+
+  .facts {
+    margin-top: 14px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+
+  .fact-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    padding: 6px 0;
+    border-bottom: 1px solid #F0F1EC;
+  }
+
+  .fact-row:last-child { border-bottom: none; }
+  .fact-label { color: var(--muted); flex-shrink: 0; }
+  .fact-value { text-align: right; }
+
+  .barcode-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+
+  #history h3 {
+    font-size: 14px;
+    margin: 0 0 10px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .history-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+
+  .history-row:last-child { border-bottom: none; }
+
+  .history-row img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    background: var(--bg);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .history-row .name {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .history-row .code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .empty-history {
+    font-size: 13px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div class="dot"></div>
+    <h1>Barcode scanner</h1>
+  </header>
+
+  <div class="card">
+    <div id="viewfinder">
+      <div class="placeholder" id="placeholder">Tap "start camera" to scan a barcode</div>
+      <div class="scan-frame" id="scanFrame" style="display:none;">
+        <div class="scan-line"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="btn-primary" id="toggleCamera">Start camera</button>
+    </div>
+
+    <div class="manual-row">
+      <input type="text" id="manualCode" inputmode="numeric" placeholder="Or type a barcode, e.g. 3017620422003">
+      <button class="btn-secondary" id="manualLookup" style="flex: 0 0 auto;">Look up</button>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="result">
+    <div class="result-head">
+      <img id="resImg" src="" alt="">
+      <div class="titles">
+        <h2 id="resName">-</h2>
+        <div class="brand" id="resBrand">-</div>
+        <div class="grade-badge grade-unknown" id="resGrade">?</div>
+      </div>
+    </div>
+    <div class="facts">
+      <div class="fact-row"><span class="fact-label">Quantity</span><span class="fact-value" id="resQty">-</span></div>
+      <div class="fact-row"><span class="fact-label">Ingredients</span><span class="fact-value" id="resIngredients">-</span></div>
+      <div class="fact-row"><span class="fact-label">Allergens</span><span class="fact-value" id="resAllergens">-</span></div>
+    </div>
+    <div class="barcode-tag" id="resCode"></div>
+  </div>
+
+  <div class="card" id="history">
+    <h3>Recent scans</h3>
+    <div id="historyList"><div class="empty-history">Nothing scanned yet this session.</div></div>
+  </div>
+</div>
+
+<script>
+let scanning = false;
+let history = [];
+
+const placeholder = document.getElementById('placeholder');
+const scanFrame = document.getElementById('scanFrame');
+const toggleBtn = document.getElementById('toggleCamera');
+const statusEl = document.getElementById('status');
+const viewfinder = document.getElementById('viewfinder');
+
+function setStatus(msg, type) {
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (type ? ' ' + type : '');
+}
+
+function startCamera() {
+  if (!window.isSecureContext) {
+    setStatus('Camera needs HTTPS or localhost. Serve this file over https:// or run it via a local dev server.', 'error');
+    return;
+  }
+
+  placeholder.style.display = 'none';
+  scanFrame.style.display = 'block';
+  toggleBtn.textContent = 'Stop camera';
+  setStatus('Point the camera at a barcode...');
+
+  Quagga.init({
+    inputStream: {
+      name: 'Live',
+      type: 'LiveStream',
+      target: viewfinder,
+      constraints: {
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    },
+    locator: { patchSize: 'medium', halfSample: true },
+    numOfWorkers: navigator.hardwareConcurrency || 2,
+    decoder: {
+      readers: ['ean_reader', 'ean_8_reader', 'upc_reader', 'upc_e_reader', 'code_128_reader']
+    },
+    locate: true
+  }, function(err) {
+    if (err) {
+      console.error(err);
+      setStatus('Could not access the camera. Check permissions, or use manual entry below.', 'error');
+      stopCamera();
+      return;
+    }
+    Quagga.start();
+    scanning = true;
+  });
+
+  let lastCode = null;
+  let lastTime = 0;
+
+  Quagga.onDetected(function(data) {
+    const code = data.codeResult.code;
+    const now = Date.now();
+    // require the same code twice in a row within 1s to avoid misreads
+    if (code === lastCode && now - lastTime < 1000) {
+      lookupProduct(code);
+      stopCamera();
+    }
+    lastCode = code;
+    lastTime = now;
+  });
+}
+
+function stopCamera() {
+  if (scanning) {
+    Quagga.stop();
+    scanning = false;
+  }
+  placeholder.style.display = 'flex';
+  scanFrame.style.display = 'none';
+  toggleBtn.textContent = 'Start camera';
+}
+
+toggleBtn.addEventListener('click', function() {
+  if (scanning) {
+    stopCamera();
+    setStatus('');
+  } else {
+    startCamera();
+  }
+});
+
+document.getElementById('manualLookup').addEventListener('click', function() {
+  const code = document.getElementById('manualCode').value.trim();
+  if (code) lookupProduct(code);
+});
+
+document.getElementById('manualCode').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const code = e.target.value.trim();
+    if (code) lookupProduct(code);
+  }
+});
+
+function gradeClass(grade) {
+  if (!grade) return 'grade-unknown';
+  const g = grade.toLowerCase();
+  if (['a','b','c','d','e'].includes(g)) return 'grade-' + g;
+  return 'grade-unknown';
+}
+
+async function lookupProduct(code) {
+  setStatus('Looking up ' + code + '...');
+  try {
+    const res = await fetch('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json');
+    const data = await res.json();
+
+    if (data.status !== 1 || !data.product) {
+      setStatus('No product found for ' + code + '. It may not be in the Open Food Facts database yet.', 'error');
+      document.getElementById('result').style.display = 'none';
+      return;
+    }
+
+    const p = data.product;
+    renderResult(code, p);
+    addToHistory(code, p);
+    setStatus('Found it.', 'success');
+  } catch (e) {
+    console.error(e);
+    setStatus('Network error while looking up that barcode. Check your connection and try again.', 'error');
+  }
+}
+
+function renderResult(code, p) {
+  const result = document.getElementById('result');
+  result.style.display = 'block';
+
+  document.getElementById('resImg').src = p.image_front_small_url || p.image_url || '';
+  document.getElementById('resName').textContent = p.product_name || 'Unnamed product';
+  document.getElementById('resBrand').textContent = p.brands || 'Unknown brand';
+
+  const gradeEl = document.getElementById('resGrade');
+  const grade = p.nutriscore_grade;
+  gradeEl.className = 'grade-badge ' + gradeClass(grade);
+  gradeEl.textContent = grade ? grade.toUpperCase() : '?';
+
+  document.getElementById('resQty').textContent = p.quantity || 'Not listed';
+
+  const ingredients = p.ingredients_text || 'Not listed';
+  document.getElementById('resIngredients').textContent = ingredients.length > 80
+    ? ingredients.slice(0, 80) + '...'
+    : ingredients;
+
+  const allergens = (p.allergens_tags || []).map(a => a.replace('en:', '')).join(', ');
+  document.getElementById('resAllergens').textContent = allergens || 'None listed';
+
+  document.getElementById('resCode').textContent = code;
+
+  result.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function addToHistory(code, p) {
+  history = history.filter(h => h.code !== code);
+  history.unshift({ code, name: p.product_name || 'Unnamed product', img: p.image_front_small_url || p.image_url || '' });
+  history = history.slice(0, 10);
+  renderHistory();
+}
+
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  if (history.length === 0) {
+    list.innerHTML = '<div class="empty-history">Nothing scanned yet this session.</div>';
+    return;
+  }
+  list.innerHTML = history.map(h => `
+    <div class="history-row" data-code="${h.code}">
+      <img src="${h.img}" alt="">
+      <div style="flex:1; min-width:0;">
+        <div class="name">${h.name}</div>
+        <div class="code">${h.code}</div>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.history-row').forEach(row => {
+    row.addEventListener('click', () => lookupProduct(row.dataset.code));
+  });
+}
+</script>
+
+</body>
+</html>
