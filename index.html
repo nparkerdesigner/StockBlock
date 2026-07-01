@@ -74,7 +74,12 @@
     overflow: hidden;
   }
 
-  #viewfinder video, #viewfinder canvas {
+  #cameraMount {
+    position: absolute;
+    inset: 0;
+  }
+
+  #cameraMount video, #cameraMount canvas {
     position: absolute;
     top: 0; left: 0;
     width: 100%;
@@ -303,6 +308,7 @@
 
   <div class="card">
     <div id="viewfinder">
+      <div id="cameraMount"></div>
       <div class="placeholder" id="placeholder">Tap "start camera" to scan a barcode</div>
       <div class="scan-frame" id="scanFrame" style="display:none;">
         <div class="scan-line"></div>
@@ -346,85 +352,126 @@
 
 <script>
 let scanning = false;
+let busy = false; // true while starting or stopping, blocks double taps
+let lastCode = null;
+let lastTime = 0;
 let history = [];
 
 const placeholder = document.getElementById('placeholder');
 const scanFrame = document.getElementById('scanFrame');
 const toggleBtn = document.getElementById('toggleCamera');
 const statusEl = document.getElementById('status');
-const viewfinder = document.getElementById('viewfinder');
+const cameraMount = document.getElementById('cameraMount');
 
 function setStatus(msg, type) {
   statusEl.textContent = msg || '';
   statusEl.className = 'status' + (type ? ' ' + type : '');
 }
 
+// Register the detection handler once, not on every start.
+// Re-registering on each start() stacks duplicate listeners and
+// is a common cause of erratic double-fires and crashes on mobile.
+Quagga.onDetected(function(data) {
+  if (!scanning) return;
+  const code = data.codeResult.code;
+  const now = Date.now();
+  if (code === lastCode && now - lastTime < 1000) {
+    lookupProduct(code);
+    stopCamera();
+  }
+  lastCode = code;
+  lastTime = now;
+});
+
 function startCamera() {
+  if (busy) return;
   if (!window.isSecureContext) {
     setStatus('Camera needs HTTPS or localhost. Serve this file over https:// or run it via a local dev server.', 'error');
     return;
   }
 
+  busy = true;
+  toggleBtn.disabled = true;
+
+  // Fully clear the mount point first. If a previous session left a
+  // video/canvas behind, Quagga.init appends another one on top of it,
+  // which is what causes the black screen / crash on repeated taps.
+  cameraMount.innerHTML = '';
+
   placeholder.style.display = 'none';
   scanFrame.style.display = 'block';
-  toggleBtn.textContent = 'Stop camera';
-  setStatus('Point the camera at a barcode...');
+  setStatus('Starting camera...');
 
   Quagga.init({
     inputStream: {
       name: 'Live',
       type: 'LiveStream',
-      target: viewfinder,
+      target: cameraMount,
       constraints: {
         facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        // Lower than 1280x720 on purpose: this is plenty of resolution
+        // to read a barcode and is much lighter on phone CPUs/GPUs.
+        width: { ideal: 640 },
+        height: { ideal: 480 }
       }
     },
-    locator: { patchSize: 'medium', halfSample: true },
-    numOfWorkers: navigator.hardwareConcurrency || 2,
+    locator: { patchSize: 'small', halfSample: true },
+    // Fixed at 2 rather than navigator.hardwareConcurrency. Spinning up
+    // one worker per CPU core is what was overloading the device and
+    // causing the crashes.
+    numOfWorkers: 2,
     decoder: {
       readers: ['ean_reader', 'ean_8_reader', 'upc_reader', 'upc_e_reader', 'code_128_reader']
     },
     locate: true
   }, function(err) {
+    busy = false;
+    toggleBtn.disabled = false;
+
     if (err) {
       console.error(err);
       setStatus('Could not access the camera. Check permissions, or use manual entry below.', 'error');
-      stopCamera();
+      placeholder.style.display = 'flex';
+      scanFrame.style.display = 'none';
       return;
     }
+
     Quagga.start();
     scanning = true;
-  });
-
-  let lastCode = null;
-  let lastTime = 0;
-
-  Quagga.onDetected(function(data) {
-    const code = data.codeResult.code;
-    const now = Date.now();
-    // require the same code twice in a row within 1s to avoid misreads
-    if (code === lastCode && now - lastTime < 1000) {
-      lookupProduct(code);
-      stopCamera();
-    }
-    lastCode = code;
-    lastTime = now;
+    toggleBtn.textContent = 'Stop camera';
+    setStatus('Point the camera at a barcode...');
   });
 }
 
 function stopCamera() {
+  if (busy) return;
+  busy = true;
+  toggleBtn.disabled = true;
+
   if (scanning) {
     Quagga.stop();
     scanning = false;
   }
+
+  // Explicitly stop any lingering camera tracks. Quagga.stop() usually
+  // handles this, but leaving a track running in the background is
+  // another path to a black/frozen viewfinder on the next start.
+  const video = cameraMount.querySelector('video');
+  if (video && video.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop());
+  }
+  cameraMount.innerHTML = '';
+
   placeholder.style.display = 'flex';
   scanFrame.style.display = 'none';
   toggleBtn.textContent = 'Start camera';
+
+  busy = false;
+  toggleBtn.disabled = false;
 }
 
 toggleBtn.addEventListener('click', function() {
+  if (busy) return;
   if (scanning) {
     stopCamera();
     setStatus('');
